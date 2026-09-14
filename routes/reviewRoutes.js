@@ -7,7 +7,7 @@ router.post('/', auth, role('buyer'), async (req, res) => {
   try {
     const { order_id, rating, comment } = req.body;
     const [[order]] = await db.execute(
-      'SELECT o.*, COALESCE(o.customer_name, u.name) as buyer_name FROM orders o JOIN users u ON u.id=o.buyer_id WHERE o.id=? AND o.buyer_id=? AND o.status="completed"',
+      "SELECT o.*, COALESCE(o.customer_name, u.name) as buyer_name FROM orders o JOIN users u ON u.id=o.buyer_id WHERE o.id=? AND o.buyer_id=? AND o.status='completed'",
       [order_id, req.user.id]
     );
     if (!order) return res.status(400).json({ message: 'Order not found or not completed' });
