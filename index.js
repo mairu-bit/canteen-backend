@@ -28,6 +28,7 @@ app.use('/api/orders',  require('./routes/orderRoutes'));
 app.use('/api/queue',   require('./routes/queueRoutes'));
 app.use('/api/reviews', require('./routes/reviewRoutes'));
 app.use('/api/stats',   require('./routes/statsRoutes'));
+app.use('/api/tables',  require('./routes/tableRoutes'));
 app.use('/api/admin',   require('./routes/adminRoutes'));
 app.use('/api/upload',  require('./routes/uploadRoutes'));
 

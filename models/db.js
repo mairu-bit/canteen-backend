@@ -46,6 +46,30 @@ const pool = mysql.createPool({
       await conn.execute("ALTER TABLE shops ADD COLUMN image_url TEXT DEFAULT NULL");
       console.log("[Migration] Added 'image_url' column to shops");
     }
+
+    // Create canteen_tables table if not exists
+    await conn.execute(`
+      CREATE TABLE IF NOT EXISTS canteen_tables (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        table_no VARCHAR(50) NOT NULL UNIQUE,
+        status ENUM('available', 'occupied') NOT NULL DEFAULT 'available',
+        current_buyer_id INT DEFAULT NULL,
+        current_customer_name VARCHAR(100) DEFAULT NULL,
+        occupied_at DATETIME DEFAULT NULL,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Seed default canteen tables
+    const [existingTables] = await conn.execute("SELECT COUNT(*) as cnt FROM canteen_tables");
+    if (existingTables[0].cnt === 0) {
+      const defaultTables = ['โต๊ะ 1', 'โต๊ะ 2', 'โต๊ะ 3', 'โต๊ะ 4', 'โต๊ะ 5', 'โต๊ะ 6'];
+      for (const t of defaultTables) {
+        await conn.execute("INSERT IGNORE INTO canteen_tables (table_no, status) VALUES (?, 'available')", [t]);
+      }
+      console.log("[Migration] Seeded default canteen tables");
+    }
+
     conn.release();
   } catch (err) {
     console.error("[Migration] Migration check error:", err.message);

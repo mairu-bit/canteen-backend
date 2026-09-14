@@ -48,9 +48,36 @@ exports.createOrder = async (req, res) => {
       total += menu.price * item.quantity;
     }
 
+    // ตรวจสอบว่าผู้ซื้อคนนี้นั่งอยู่ที่โต๊ะนี้อยู่แล้วหรือไม่ (สั่งอาหารเพิ่มที่โต๊ะเดิม)
+    let isAlreadyAtTable = 0;
+    if (table_no) {
+      // 1. ตรวจสอบจาก canteen_tables
+      const [[occupiedTable]] = await conn.execute(
+        `SELECT * FROM canteen_tables WHERE table_no=? AND current_buyer_id=? AND status='occupied'`,
+        [table_no, req.user.id]
+      );
+      // 2. หรือมีออเดอร์ก่อนหน้าที่ลูกค้าเช็คอินแล้ว
+      const [[priorArrivedOrder]] = await conn.execute(
+        `SELECT id FROM orders WHERE buyer_id=? AND table_no=? AND is_arrived=1 AND status IN ('pending', 'accepted', 'completed') AND created_at >= (NOW() - INTERVAL 4 HOUR) LIMIT 1`,
+        [req.user.id, table_no]
+      );
+
+      if (occupiedTable || priorArrivedOrder) {
+        isAlreadyAtTable = 1;
+      }
+
+      // อัปเดตสถานะโต๊ะใน canteen_tables ให้ไม่ว่าง
+      await conn.execute(
+        `INSERT INTO canteen_tables (table_no, status, current_buyer_id, current_customer_name, occupied_at)
+         VALUES (?, 'occupied', ?, ?, NOW())
+         ON DUPLICATE KEY UPDATE status='occupied', current_buyer_id=?, current_customer_name=?, occupied_at=COALESCE(occupied_at, NOW())`,
+        [table_no, req.user.id, finalCustomerName, req.user.id, finalCustomerName]
+      );
+    }
+
     const [order] = await conn.execute(
-      'INSERT INTO orders (buyer_id, shop_id, queue_number, total_price, table_no, customer_name, is_arrived) VALUES (?,?,?,?,?,?,0)',
-      [req.user.id, shop_id, queue_number, total, table_no || null, finalCustomerName]
+      'INSERT INTO orders (buyer_id, shop_id, queue_number, total_price, table_no, customer_name, is_arrived, arrived_at) VALUES (?,?,?,?,?,?,?,?)',
+      [req.user.id, shop_id, queue_number, total, table_no || null, finalCustomerName, isAlreadyAtTable, isAlreadyAtTable ? new Date() : null]
     );
 
     for (const item of items) {
@@ -63,8 +90,11 @@ exports.createOrder = async (req, res) => {
 
     await conn.commit();
 
-    // Emit queue update
+    // Emit queue update & table update
     req.io.to(`shop_${shop_id}`).emit('queue_update', { shop_id });
+    if (table_no) {
+      req.io.emit('table_update', { table_no, status: 'occupied' });
+    }
 
     res.status(201).json({
       order_id: order.insertId,
@@ -190,6 +220,16 @@ exports.markArrived = async (req, res) => {
       `UPDATE orders SET is_arrived=1, arrived_at=NOW() WHERE id=?`,
       [req.params.id]
     );
+
+    if (order.table_no) {
+      await db.execute(
+        `INSERT INTO canteen_tables (table_no, status, current_buyer_id, current_customer_name, occupied_at)
+         VALUES (?, 'occupied', ?, ?, NOW())
+         ON DUPLICATE KEY UPDATE status='occupied', current_buyer_id=?, current_customer_name=?, occupied_at=COALESCE(occupied_at, NOW())`,
+        [order.table_no, order.buyer_id, order.customer_name, order.buyer_id, order.customer_name]
+      );
+      req.io.emit('table_update', { table_no: order.table_no, status: 'occupied' });
+    }
 
     req.io.to(`shop_${order.shop_id}`).emit('queue_update', { shop_id: order.shop_id });
     res.json({ message: 'ลูกค้ามาถึงโต๊ะแล้ว' });
