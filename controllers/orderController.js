@@ -14,6 +14,26 @@ exports.createOrder = async (req, res) => {
       finalCustomerName = user ? user.name : 'ลูกค้าทั่วไป';
     }
 
+    // ป้องกันการกดย้ำ (Double-Click Anti-Spam Cooldown 4 วินาที)
+    const [[recentDuplicate]] = await conn.execute(
+      `SELECT id, queue_number, table_no, customer_name
+       FROM orders
+       WHERE buyer_id=? AND shop_id=? AND status='pending'
+       AND created_at >= (NOW() - INTERVAL 4 SECOND)
+       ORDER BY id DESC LIMIT 1`,
+      [req.user.id, shop_id]
+    );
+    if (recentDuplicate) {
+      await conn.commit();
+      return res.status(200).json({
+        order_id: recentDuplicate.id,
+        queue_number: recentDuplicate.queue_number,
+        table_no: recentDuplicate.table_no,
+        customer_name: recentDuplicate.customer_name,
+        duplicate_prevented: true
+      });
+    }
+
     // คำนวณ queue number (pending+accepted ของร้านนั้น + 1)
     const [[{ q }]] = await conn.execute(
       `SELECT COUNT(*) as q FROM orders WHERE shop_id=? AND status IN ('pending','accepted')`,
