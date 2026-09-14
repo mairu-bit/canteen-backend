@@ -15,11 +15,14 @@ router.get('/vendor', auth, role('vendor'), async (req, res) => {
       [shop.id]
     );
 
-    // ยอดขายและออเดอร์วันนี้
+    // ยอดขายและออเดอร์วันนี้ (รองรับ Timezone UTC+7 ประเทศไทย)
     const [[todaySummary]] = await db.execute(
       `SELECT COUNT(*) as today_orders, COALESCE(SUM(total_price), 0) as today_revenue
        FROM orders WHERE shop_id=? AND status='completed'
-       AND (DATE(completed_at) = CURDATE() OR (completed_at IS NULL AND DATE(created_at) = CURDATE()))`,
+       AND (
+         DATE(CONVERT_TZ(COALESCE(completed_at, created_at), '+00:00', '+07:00')) = DATE(CONVERT_TZ(NOW(), '+00:00', '+07:00'))
+         OR DATE(COALESCE(completed_at, created_at)) = CURDATE()
+       )`,
       [shop.id]
     );
 
