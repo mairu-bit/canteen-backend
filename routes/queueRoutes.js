@@ -16,7 +16,7 @@ router.get('/:shopId', async (req, res) => {
 // GET /api/queue/my/:orderId — ดูสถานะคิวของตัวเอง
 router.get('/my/:orderId', auth, async (req, res) => {
   const [[order]] = await db.execute(
-    `SELECT o.id, o.queue_number, o.status, o.shop_id, o.table_no, o.is_arrived, o.arrived_at, o.total_price, o.created_at,
+    `SELECT o.id, o.queue_number, o.status, o.shop_id, o.table_no, o.is_arrived, o.arrived_at, o.accepted_at, o.completed_at, o.total_price, o.created_at,
             s.name as shop_name, COALESCE(o.customer_name, u.name) as buyer_name
      FROM orders o
      JOIN shops s ON s.id = o.shop_id
