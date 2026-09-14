@@ -64,6 +64,13 @@ router.get('/vendor', auth, role('vendor'), async (req, res) => {
       order.items = items;
     }
 
+    // สรุปคะแนนรีวิวร้านค้า
+    const [[reviewSummary]] = await db.execute(
+      `SELECT COUNT(*) as total_reviews, COALESCE(AVG(rating), 0) as avg_rating
+       FROM reviews WHERE shop_id=?`,
+      [shop.id]
+    );
+
     res.json({
       summary: {
         total_orders: summary.total_orders || 0,
@@ -71,6 +78,8 @@ router.get('/vendor', auth, role('vendor'), async (req, res) => {
         today_orders: todaySummary.today_orders || 0,
         today_revenue: Number(todaySummary.today_revenue) || 0,
         active_orders: activeSummary.active_orders || 0,
+        total_reviews: reviewSummary.total_reviews || 0,
+        avg_rating: Number(Number(reviewSummary.avg_rating).toFixed(1)) || 0,
       },
       topMenus,
       recentOrders
