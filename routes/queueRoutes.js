@@ -16,10 +16,23 @@ router.get('/:shopId', async (req, res) => {
 // GET /api/queue/my/:orderId — ดูสถานะคิวของตัวเอง
 router.get('/my/:orderId', auth, async (req, res) => {
   const [[order]] = await db.execute(
-    'SELECT queue_number, status, shop_id, table_no, is_arrived, arrived_at FROM orders WHERE id=? AND buyer_id=?',
+    `SELECT o.id, o.queue_number, o.status, o.shop_id, o.table_no, o.is_arrived, o.arrived_at, o.total_price, o.created_at,
+            s.name as shop_name, COALESCE(o.customer_name, u.name) as buyer_name
+     FROM orders o
+     JOIN shops s ON s.id = o.shop_id
+     JOIN users u ON u.id = o.buyer_id
+     WHERE o.id=? AND o.buyer_id=?`,
     [req.params.orderId, req.user.id]
   );
   if (!order) return res.status(404).json({ message: 'Not found' });
+
+  const [items] = await db.execute(
+    `SELECT oi.*, m.name as menu_name FROM order_items oi
+     JOIN menus m ON m.id = oi.menu_id
+     WHERE oi.order_id = ?`,
+    [order.id]
+  );
+  order.items = items;
 
   const [[{ ahead }]] = await db.execute(
     `SELECT COUNT(*) as ahead FROM orders

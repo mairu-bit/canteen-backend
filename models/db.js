@@ -31,6 +31,11 @@ const pool = mysql.createPool({
       await conn.execute("ALTER TABLE orders ADD COLUMN arrived_at DATETIME DEFAULT NULL");
       console.log("[Migration] Added 'arrived_at' column to orders");
     }
+    const [customerNameCols] = await conn.execute("SHOW COLUMNS FROM orders LIKE 'customer_name'");
+    if (customerNameCols.length === 0) {
+      await conn.execute("ALTER TABLE orders ADD COLUMN customer_name VARCHAR(100) DEFAULT NULL");
+      console.log("[Migration] Added 'customer_name' column to orders");
+    }
     const [menuImageCols] = await conn.execute("SHOW COLUMNS FROM menus LIKE 'image_url'");
     if (menuImageCols.length === 0) {
       await conn.execute("ALTER TABLE menus ADD COLUMN image_url TEXT DEFAULT NULL");
