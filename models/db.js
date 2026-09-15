@@ -70,6 +70,32 @@ const pool = mysql.createPool({
       console.log("[Migration] Seeded default canteen tables");
     }
 
+    // Create admin_messages table if not exists
+    await conn.execute(`
+      CREATE TABLE IF NOT EXISTS admin_messages (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        sender_id INT NOT NULL,
+        shop_id INT DEFAULT NULL,
+        title VARCHAR(255) NOT NULL,
+        message TEXT NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (sender_id) REFERENCES users(id) ON DELETE CASCADE
+      )
+    `);
+
+    // Create admin_message_reads table if not exists
+    await conn.execute(`
+      CREATE TABLE IF NOT EXISTS admin_message_reads (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        message_id INT NOT NULL,
+        shop_id INT NOT NULL,
+        read_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY unique_read (message_id, shop_id),
+        FOREIGN KEY (message_id) REFERENCES admin_messages(id) ON DELETE CASCADE,
+        FOREIGN KEY (shop_id) REFERENCES shops(id) ON DELETE CASCADE
+      )
+    `);
+
     conn.release();
   } catch (err) {
     console.error("[Migration] Migration check error:", err.message);

@@ -5,8 +5,34 @@ exports.getPendingShops = async (req, res) => {
   try {
     const [rows] = await db.execute(
       `SELECT s.*, u.name as owner_name, u.email FROM shops s
-       JOIN users u ON u.id = s.user_id WHERE s.status='pending'`
+       JOIN users u ON u.id = s.user_id WHERE s.status='pending' ORDER BY s.created_at DESC`
     );
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// GET /api/admin/shops — ดูร้านค้าทั้งหมด
+exports.getAllShops = async (req, res) => {
+  try {
+    const [rows] = await db.execute(`
+      SELECT 
+        s.*, 
+        u.name as owner_name, 
+        u.email as owner_email,
+        COUNT(DISTINCT m.id) as menu_count,
+        COUNT(DISTINCT CASE WHEN o.status='completed' THEN o.id END) as total_orders,
+        COALESCE(SUM(CASE WHEN o.status='completed' THEN o.total_price END), 0) as total_revenue,
+        AVG(r.rating) as avg_rating
+      FROM shops s
+      JOIN users u ON u.id = s.user_id
+      LEFT JOIN menus m ON m.shop_id = s.id
+      LEFT JOIN orders o ON o.shop_id = s.id
+      LEFT JOIN reviews r ON r.shop_id = s.id
+      GROUP BY s.id
+      ORDER BY s.created_at DESC
+    `);
     res.json(rows);
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -26,8 +52,112 @@ exports.approveShop = async (req, res) => {
 // PUT /api/admin/shops/:id/reject
 exports.rejectShop = async (req, res) => {
   try {
-    await db.execute(`UPDATE shops SET status='rejected' WHERE id=?`, [req.params.id]);
+    await db.execute(`UPDATE shops SET status='rejected', is_open=0 WHERE id=?`, [req.params.id]);
     res.json({ message: 'Shop rejected' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// PUT /api/admin/shops/:id/status — เปลี่ยนสถานะร้าน (approved, rejected, suspended, pending) / เปิด-ปิด
+exports.updateShopStatus = async (req, res) => {
+  try {
+    const { status, is_open } = req.body;
+    const updates = [];
+    const params = [];
+    if (status !== undefined) {
+      updates.push('status = ?');
+      params.push(status);
+    }
+    if (is_open !== undefined) {
+      updates.push('is_open = ?');
+      params.push(is_open ? 1 : 0);
+    }
+    if (updates.length === 0) return res.status(400).json({ message: 'No fields to update' });
+    params.push(req.params.id);
+    await db.execute(`UPDATE shops SET ${updates.join(', ')} WHERE id=?`, params);
+    res.json({ message: 'Shop status updated' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// DELETE /api/admin/shops/:id — ลบร้านค้า
+exports.deleteShop = async (req, res) => {
+  try {
+    const [[shop]] = await db.execute('SELECT * FROM shops WHERE id=?', [req.params.id]);
+    if (!shop) return res.status(404).json({ message: 'Shop not found' });
+    
+    // Delete shop
+    await db.execute('DELETE FROM shops WHERE id=?', [req.params.id]);
+    res.json({ message: 'Shop deleted successfully' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// POST /api/admin/messages — ส่งข้อความ/ประกาศหาร้านค้า
+exports.sendAdminMessage = async (req, res) => {
+  try {
+    const { shop_id, title, message } = req.body;
+    if (!title || !message) {
+      return res.status(400).json({ message: 'Title and message are required' });
+    }
+
+    const [result] = await db.execute(
+      'INSERT INTO admin_messages (sender_id, shop_id, title, message) VALUES (?, ?, ?, ?)',
+      [req.user.id, shop_id ? parseInt(shop_id) : null, title.trim(), message.trim()]
+    );
+
+    const messageData = {
+      id: result.insertId,
+      sender_id: req.user.id,
+      shop_id: shop_id ? parseInt(shop_id) : null,
+      title: title.trim(),
+      message: message.trim(),
+      created_at: new Date()
+    };
+
+    // Emit via Socket.io
+    if (req.io) {
+      if (shop_id) {
+        req.io.to(`shop_${shop_id}`).emit('admin_message', messageData);
+      } else {
+        req.io.emit('admin_message', messageData);
+      }
+    }
+
+    res.status(201).json({ message: 'Message sent successfully', data: messageData });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// GET /api/admin/messages — ดูประวัติข้อความที่ส่ง
+exports.getAdminMessages = async (req, res) => {
+  try {
+    const [rows] = await db.execute(`
+      SELECT 
+        m.*,
+        s.name as target_shop_name,
+        u.name as sender_name,
+        (SELECT COUNT(*) FROM admin_message_reads r WHERE r.message_id = m.id) as read_count
+      FROM admin_messages m
+      LEFT JOIN shops s ON s.id = m.shop_id
+      JOIN users u ON u.id = m.sender_id
+      ORDER BY m.created_at DESC
+    `);
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// DELETE /api/admin/messages/:id — ลบข้อความที่ส่ง
+exports.deleteAdminMessage = async (req, res) => {
+  try {
+    await db.execute('DELETE FROM admin_messages WHERE id=?', [req.params.id]);
+    res.json({ message: 'Message deleted' });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
