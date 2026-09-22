@@ -24,6 +24,7 @@ exports.getAllShops = async (req, res) => {
         COUNT(DISTINCT m.id) as menu_count,
         COUNT(DISTINCT CASE WHEN o.status='completed' THEN o.id END) as total_orders,
         COALESCE(SUM(CASE WHEN o.status='completed' THEN o.total_price END), 0) as total_revenue,
+        COALESCE(SUM(CASE WHEN o.status='completed' THEN o.total_price END), 0) as revenue,
         AVG(r.rating) as avg_rating
       FROM shops s
       JOIN users u ON u.id = s.user_id
@@ -169,7 +170,8 @@ exports.getOverallStats = async (req, res) => {
     const [[summary]] = await db.execute(`
       SELECT
         COUNT(*) as total_orders,
-        SUM(total_price) as total_revenue,
+        COALESCE(SUM(total_price), 0) as revenue,
+        COALESCE(SUM(total_price), 0) as total_revenue,
         AVG(TIMESTAMPDIFF(SECOND, accepted_at, completed_at)) as avg_seconds
       FROM orders WHERE status='completed'
     `);
@@ -189,18 +191,36 @@ exports.getOverallStats = async (req, res) => {
 
     // สถิติรายร้าน
     const [shopStats] = await db.execute(`
-      SELECT s.name as shop_name,
-        COUNT(o.id) as total_orders,
-        SUM(o.total_price) as revenue,
-        AVG(r.rating) as avg_rating
+      SELECT 
+        s.name as shop_name,
+        COALESCE(ord.total_orders, 0) as total_orders,
+        COALESCE(ord.revenue, 0) as revenue,
+        COALESCE(ord.revenue, 0) as total_revenue,
+        rev.avg_rating
       FROM shops s
-      LEFT JOIN orders o ON o.shop_id=s.id AND o.status='completed'
-      LEFT JOIN reviews r ON r.shop_id=s.id
+      LEFT JOIN (
+        SELECT shop_id, COUNT(*) as total_orders, SUM(total_price) as revenue
+        FROM orders WHERE status='completed' GROUP BY shop_id
+      ) ord ON ord.shop_id = s.id
+      LEFT JOIN (
+        SELECT shop_id, AVG(rating) as avg_rating
+        FROM reviews GROUP BY shop_id
+      ) rev ON rev.shop_id = s.id
       WHERE s.status='approved'
-      GROUP BY s.id
+      ORDER BY total_orders DESC, revenue DESC
     `);
 
-    res.json({ summary, topMenus, peakHours, shopStats });
+    res.json({
+      summary: {
+        total_orders: summary ? Number(summary.total_orders || 0) : 0,
+        revenue: summary ? (Number(summary.revenue) || Number(summary.total_revenue) || 0) : 0,
+        total_revenue: summary ? (Number(summary.total_revenue) || Number(summary.revenue) || 0) : 0,
+        avg_seconds: summary?.avg_seconds ? Number(summary.avg_seconds) : 0
+      },
+      topMenus,
+      peakHours,
+      shopStats
+    });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
