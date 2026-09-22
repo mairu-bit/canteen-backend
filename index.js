@@ -38,5 +38,19 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => {});
 });
 
+// Serve Flutter Web static build
+app.use(express.static(path.join(__dirname, 'public')));
+
+// SPA Fallback: Any route not starting with /api or /uploads serves index.html
+app.get('*', (req, res, next) => {
+  if (req.path.startsWith('/api') || req.path.startsWith('/uploads')) {
+    return next();
+  }
+  const indexPath = path.join(__dirname, 'public', 'index.html');
+  res.sendFile(indexPath, (err) => {
+    if (err) next();
+  });
+});
+
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
